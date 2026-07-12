@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  # ── FastAPI Backend ─────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clinical-qa-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./mlruns:/app/mlruns
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - CHROMA_PERSIST_DIR=/app/data/chroma_db
+      - MLFLOW_TRACKING_URI=/app/mlruns
+      - LOG_FILE=/app/logs/clinical_qa.log
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+
+  # ── Streamlit Frontend ──────────────────────────────────────
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clinical-qa-ui
+    command: streamlit run src/ui/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── MLflow Tracking Server ──────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: clinical-qa-mlflow
+    command: >
+      sh -c "pip install mlflow && mlflow ui
+             --backend-store-uri /mlruns
+             --host 0.0.0.0
+             --port 5000"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+    restart: unless-stopped
+
+volumes:
+  data:
+  mlruns:
+  logs:

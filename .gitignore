@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Secrets
+.env
+*.key
+*.pem
+secrets.yaml
+
+# Data (large files — use DVC or document download instructions)
+data/raw/
+data/processed/
+data/chroma_db/
+*.jsonl
+*.parquet
+*.arrow
+*.bin
+*.safetensors
+
+# Models (too large for git)
+models/
+*.pt
+*.pth
+*.gguf
+*.ggml
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Logs
+logs/
+*.log
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Streamlit
+.streamlit/
+
+# Temporary
+tmp/
+temp/
+scratch/

@@ -1,0 +1,114 @@
+# ============================================================
+# Clinical QA System — Makefile
+# LJMU MSc ML&AI | Amit Choudhary | Student No: 1187247
+# ============================================================
+
+.PHONY: install install-dev setup-env download-data ingest-data \
+        run-api run-ui test test-cov lint format type-check \
+        docker-build docker-up docker-down clean docs
+
+PYTHON := python3.11
+PIP := pip
+SRC := src
+TESTS := tests
+
+# ── Setup ────────────────────────────────────────────────────
+install:
+	$(PIP) install -r requirements.txt
+
+install-dev:
+	$(PIP) install -r requirements.txt -r requirements-dev.txt
+	pre-commit install
+
+setup-env:
+	cp .env.example .env
+	@echo "Edit .env with your settings before running"
+
+# ── Data Pipeline ─────────────────────────────────────────────
+download-data:
+	$(PYTHON) -m src.data.downloader --dataset medqa
+	$(PYTHON) -m src.data.downloader --dataset pubmedqa
+	$(PYTHON) -m src.data.downloader --dataset pubmed_abstracts
+
+ingest-data:
+	$(PYTHON) -m src.data.vectorstore --action ingest
+
+# ── Services ─────────────────────────────────────────────────
+run-api:
+	uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+run-ui:
+	streamlit run src/ui/app.py --server.port 8501
+
+run-mlflow:
+	mlflow ui --backend-store-uri ./mlruns --port 5000
+
+# ── Evaluation ────────────────────────────────────────────────
+evaluate:
+	$(PYTHON) -m src.evaluation.medqa_eval --max-samples 500
+
+evaluate-hallucination:
+	$(PYTHON) -m src.evaluation.hallucination_eval
+
+evaluate-ragas:
+	$(PYTHON) -m src.evaluation.ragas_eval
+
+# ── Testing ───────────────────────────────────────────────────
+test:
+	pytest $(TESTS)/ -v
+
+test-cov:
+	pytest $(TESTS)/ -v --cov=$(SRC) --cov-report=html --cov-report=term
+
+test-fast:
+	pytest $(TESTS)/ -v -m "not slow"
+
+# ── Code Quality ──────────────────────────────────────────────
+lint:
+	flake8 $(SRC)/ $(TESTS)/ --max-line-length=100
+	pylint $(SRC)/
+
+format:
+	black $(SRC)/ $(TESTS)/
+	isort $(SRC)/ $(TESTS)/
+
+type-check:
+	mypy $(SRC)/
+
+# ── Docker ────────────────────────────────────────────────────
+docker-build:
+	docker build -t clinical-qa-system:latest .
+
+docker-up:
+	docker-compose up -d
+
+docker-down:
+	docker-compose down
+
+docker-logs:
+	docker-compose logs -f
+
+# ── Documentation ─────────────────────────────────────────────
+docs:
+	pdoc3 --html --output-dir docs/api $(SRC)/
+	@echo "Docs generated at docs/api/"
+
+# ── Cleanup ───────────────────────────────────────────────────
+clean:
+	find . -type f -name "*.pyc" -delete
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf htmlcov/ .coverage .pytest_cache/
+	@echo "Cleaned."
+
+clean-data:
+	rm -rf data/raw/* data/processed/* data/chroma_db/
+	@echo "Data directories cleaned."
+
+# ── Git ───────────────────────────────────────────────────────
+git-init:
+	git init
+	git add .
+	git commit -m "feat: initial project scaffold — Day 1 complete"
+
+tag-release:
+	git tag -a v1.0.0 -m "Production release — LJMU MSc Final Submission"

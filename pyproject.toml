@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "clinical-qa-system"
+version = "1.0.0"
+description = "Hallucination-Resistant Clinical QA System Using RAG and Fine-tuned LLMs"
+authors = [
+    {name = "Amit Choudhary", email = "1187247@student.ljmu.ac.uk"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+keywords = ["clinical-nlp", "rag", "hallucination-detection", "medical-qa", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.11",
+]
+
+[project.urls]
+"Repository" = "https://github.com/amitchoudhary/clinical-qa-system"
+"LJMU" = "https://www.ljmu.ac.uk"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--cov=src --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+log_cli = true
+log_cli_level = "INFO"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "src/ui/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
