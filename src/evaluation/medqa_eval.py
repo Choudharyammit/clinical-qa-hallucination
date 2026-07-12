@@ -151,7 +151,7 @@ def run_medqa_evaluation(
             json.dump({
                 "experiment_name": settings.mlflow_experiment_name,
                 **final_metrics,
-                "last_updated": time.strftime("%Y-%m-%d %Human:%M:%S"),
+                "last_updated": time.strftime("%Y-%m-%d %H:%M:%S"),
             }, f, indent=2)
 
         logger.success(

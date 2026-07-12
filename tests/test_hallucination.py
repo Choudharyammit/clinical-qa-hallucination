@@ -104,7 +104,7 @@ class TestHallucinationDetectorAgent:
     def test_verified_response_brackets_hallucinated(self, detector):
         # Short claims will be marked as hallucinated by mock
         response = "Yes. Metformin reduces blood glucose in diabetic patients significantly."
-        report = detector.verify(response, EVIDENCE, flag_mode_override=None)
+        report = detector.verify(response, EVIDENCE)
         # The original response should have some modification
         assert report.verified_response is not None
 

@@ -45,13 +45,30 @@ run-mlflow:
 
 # ── Evaluation ────────────────────────────────────────────────
 evaluate:
-	$(PYTHON) -m src.evaluation.medqa_eval --max-samples 500
+	$(PYTHON) -m src.evaluation.medqa_eval --condition all --max-samples 500
+
+evaluate-retrieval:
+	$(PYTHON) -m src.evaluation.retrieval_eval --top-k 1 3 5 10 --max-samples 200
+
+evaluate-baseline:
+	$(PYTHON) -m src.evaluation.baseline_eval --model biogpt --max-samples 100
 
 evaluate-hallucination:
 	$(PYTHON) -m src.evaluation.hallucination_eval
 
 evaluate-ragas:
 	$(PYTHON) -m src.evaluation.ragas_eval
+
+evaluate-all: evaluate-baseline evaluate-retrieval evaluate evaluate-ragas evaluate-hallucination
+
+pipeline-test:
+	$(PYTHON) scripts/run_pipeline.py --n-questions 100 --condition rag_with_hallucination_filter
+
+pipeline-test-all:
+	$(PYTHON) scripts/run_pipeline.py --n-questions 100 --condition all
+
+pipeline-smoke:
+	$(PYTHON) scripts/run_pipeline.py --fast
 
 # ── Testing ───────────────────────────────────────────────────
 test:
