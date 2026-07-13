@@ -30,8 +30,8 @@ data/chroma_db/
 *.bin
 *.safetensors
 
-# Models (too large for git)
-models/
+# Models (too large for git — only exclude root-level weights dir, not src/models/)
+/models/
 *.pt
 *.pth
 *.gguf
