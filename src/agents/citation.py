@@ -147,11 +147,13 @@ class CitationAgent:
             if hasattr(doc, "source"):
                 src = doc.source
                 meta = getattr(doc, "metadata", {})
-                score = getattr(doc, "score", 0.0)
+                # RankedDocument uses cross_encoder_score; RetrievedDocument uses score
+                score = getattr(doc, "cross_encoder_score",
+                                getattr(doc, "score", 0.0))
             else:
                 src = doc.get("source", "")
                 meta = doc.get("metadata", {})
-                score = doc.get("score", 0.0)
+                score = doc.get("cross_encoder_score", doc.get("score", 0.0))
 
             citations.append(Citation(
                 source=src,
