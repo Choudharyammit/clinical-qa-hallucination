@@ -78,6 +78,22 @@ halluc-eval-all:
 halluc-summary:
 	$(PYTHON) scripts/run_hallucination_eval.py --summary
 
+# ── Day 5: Full Benchmark ──────────────────────────────────────
+benchmark:
+	$(PYTHON) scripts/run_full_benchmark.py --n 500
+
+benchmark-quick:
+	$(PYTHON) scripts/run_full_benchmark.py --n 50
+
+benchmark-charts:
+	$(PYTHON) scripts/run_full_benchmark.py --skip-inference --phase charts
+
+benchmark-ragas:
+	$(PYTHON) scripts/run_full_benchmark.py --phase ragas --ragas-n 100
+
+benchmark-retrieval:
+	$(PYTHON) scripts/run_full_benchmark.py --phase retrieval --retrieval-n 200
+
 train-nli:
 	$(PYTHON) -m src.models.nli_trainer --epochs 3 --batch-size 16
 
