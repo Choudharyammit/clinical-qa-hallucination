@@ -5,7 +5,8 @@
 
 .PHONY: install install-dev setup-env download-data ingest-data \
         run-api run-ui test test-cov lint format type-check \
-        docker-build docker-up docker-down clean docs
+        docker-build docker-up docker-down clean docs \
+        halluc-stats halluc-ab-test halluc-eval-all train-nli verify-setup
 
 PYTHON := python3.11
 PIP := pip
@@ -60,6 +61,34 @@ evaluate-ragas:
 	$(PYTHON) -m src.evaluation.ragas_eval
 
 evaluate-all: evaluate-baseline evaluate-retrieval evaluate evaluate-ragas evaluate-hallucination
+
+# ── Day 4: Hallucination A/B Evaluation ───────────────────────
+halluc-stats:
+	$(PYTHON) scripts/run_hallucination_eval.py --mode stats
+
+halluc-ab-test:
+	$(PYTHON) scripts/run_hallucination_eval.py --mode ab-test --n 100
+
+halluc-ab-test-small:
+	$(PYTHON) scripts/run_hallucination_eval.py --mode ab-test --n 20
+
+halluc-eval-all:
+	$(PYTHON) scripts/run_hallucination_eval.py --mode both --n 100
+
+halluc-summary:
+	$(PYTHON) scripts/run_hallucination_eval.py --summary
+
+train-nli:
+	$(PYTHON) -m src.models.nli_trainer --epochs 3 --batch-size 16
+
+train-nli-dry:
+	$(PYTHON) -m src.models.nli_trainer --dry-run
+
+verify-setup:
+	$(PYTHON) scripts/verify_setup.py
+
+verify-setup-quick:
+	$(PYTHON) scripts/verify_setup.py --quick
 
 pipeline-test:
 	$(PYTHON) scripts/run_pipeline.py --n-questions 100 --condition rag_with_hallucination_filter
