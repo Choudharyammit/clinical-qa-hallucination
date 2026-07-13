@@ -94,6 +94,22 @@ benchmark-ragas:
 benchmark-retrieval:
 	$(PYTHON) scripts/run_full_benchmark.py --phase retrieval --retrieval-n 200
 
+# ── Day 6: Load Testing ────────────────────────────────────────
+load-test:
+	$(PYTHON) scripts/run_load_test.py --users 10 --time 60s
+
+load-test-smoke:
+	$(PYTHON) scripts/run_load_test.py --smoke
+
+load-test-heavy:
+	$(PYTHON) scripts/run_load_test.py --users 20 --time 120s
+
+load-test-parse:
+	$(PYTHON) scripts/run_load_test.py --parse-only
+
+locust-ui:
+	locust -f locustfile.py --host http://localhost:8000
+
 train-nli:
 	$(PYTHON) -m src.models.nli_trainer --epochs 3 --batch-size 16
 
