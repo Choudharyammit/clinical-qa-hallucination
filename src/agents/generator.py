@@ -35,7 +35,7 @@ _MCQ_RE = re.compile(
     r"\b([A-D])\b(?:\.|:|\)|\s|$)",
     re.IGNORECASE,
 )
-_CONFIDENCE_RE = re.compile(r"confidence[:\s]+(high|medium|low)", re.IGNORECASE)
+_CONFIDENCE_RE = re.compile(r"confidence[^.]*?\b(high|medium|low)\b", re.IGNORECASE)
 
 
 def _extract_mcq_answer(text: str) -> Optional[str]:
