@@ -279,50 +279,64 @@ class OllamaLLM:
 
 class BioGPTFallback:
     """
-    Fallback LLM: microsoft/BioGPT-Large (CPU/MPS friendly).
-    Falls back to BioGPT base if Large doesn't fit in memory.
+    Fallback LLM: microsoft/BioGPT on MPS/CPU.
+    Uses AutoModelForCausalLM directly (avoids HF pipeline multiprocessing issues on macOS).
+    Falls back through BioGPT → distilgpt2 if memory is constrained.
     """
 
     def __init__(self):
-        self.model_name = settings.llm_model_name if "BioGPT" in settings.llm_model_name else "microsoft/BioGPT-Large"
-        self._pipeline = None
+        cfg_name = settings.llm_model_name
+        self.model_name = cfg_name if "biogpt" in cfg_name.lower() else "microsoft/BioGPT"
+        self._model = None
+        self._tokenizer = None
+        self._device: str = "cpu"
 
     def load(self) -> None:
-        from transformers import pipeline as hf_pipeline
-        device = _best_device()
-        device_idx = 0 if device == "cuda" else (-1 if device == "cpu" else device)
+        from transformers import AutoTokenizer, AutoModelForCausalLM
 
-        candidates = [self.model_name, "microsoft/BioGPT-Large", "microsoft/BioGPT"]
+        device = _best_device()
+        # Prefer BioGPT base (347M) for MPS; fall back to smaller if needed
+        candidates = [self.model_name, "microsoft/BioGPT", "distilgpt2"]
         for model_id in candidates:
             try:
                 logger.info(f"Loading {model_id} on {device}…")
-                self._pipeline = hf_pipeline(
-                    "text-generation",
-                    model=model_id,
-                    device=device_idx,
+                tokenizer = AutoTokenizer.from_pretrained(model_id)
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_id, dtype=torch.float32
                 )
+                model = model.to(device)
+                model.eval()
+                self._tokenizer = tokenizer
+                self._model = model
+                self._device = device
                 self.model_name = model_id
                 logger.success(f"{model_id} loaded on {device}.")
                 return
             except Exception as e:
-                logger.warning(f"Could not load {model_id}: {e}")
+                logger.warning(f"Could not load {model_id} on {device}: {e}")
         raise RuntimeError("No BioGPT model could be loaded.")
 
     @property
     def is_loaded(self) -> bool:
-        return self._pipeline is not None
+        return self._model is not None
 
     def generate(self, prompt: str, max_new_tokens: int = 256, **kwargs) -> str:
         if not self.is_loaded:
             self.load()
         max_tok = min(max_new_tokens, settings.llm_max_new_tokens)
-        out = self._pipeline(
-            prompt,
-            max_new_tokens=max_tok,
-            do_sample=False,
-            return_full_text=False,
+        inputs = self._tokenizer(
+            prompt, return_tensors="pt", truncation=True, max_length=1024
         )
-        return out[0]["generated_text"].strip()
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+        with torch.no_grad():
+            out = self._model.generate(
+                **inputs,
+                max_new_tokens=max_tok,
+                do_sample=False,
+                pad_token_id=self._tokenizer.eos_token_id,
+            )
+        new_tokens = out[0][inputs["input_ids"].shape[1]:]
+        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
     def answer_clinical_question(
         self,
@@ -331,7 +345,16 @@ class BioGPTFallback:
         mcq_options: Optional[dict[str, str]] = None,
     ) -> dict:
         start = time.perf_counter()
-        prompt = f"Context: {context[:1500]}\nQuestion: {question}\nAnswer:"
+        if mcq_options:
+            opts = "\n".join(f"{k}. {v}" for k, v in mcq_options.items())
+            prompt = (
+                f"Context: {context[:1200]}\n"
+                f"Question: {question}\n"
+                f"Options:\n{opts}\n"
+                f"Answer (letter only):"
+            )
+        else:
+            prompt = f"Context: {context[:1500]}\nQuestion: {question}\nAnswer:"
         answer = self.generate(prompt, max_new_tokens=200)
         return {
             "answer": answer,
