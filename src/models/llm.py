@@ -18,6 +18,15 @@ from loguru import logger
 
 from src.config import settings
 
+
+def _best_device() -> str:
+    """Return 'cuda', 'mps', or 'cpu' — best available for this hardware."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
 # Clinical QA prompt template following chain-of-thought style
 CLINICAL_PROMPT_TEMPLATE = """You are a clinical decision support assistant with expertise in evidence-based medicine. Answer the following medical question using ONLY the provided context. If the context does not contain sufficient information, explicitly state that you cannot answer based on available evidence.
 
@@ -270,24 +279,34 @@ class OllamaLLM:
 
 class BioGPTFallback:
     """
-    CPU-friendly fallback: microsoft/BioGPT-Large.
-    Lower quality but works on any hardware.
+    Fallback LLM: microsoft/BioGPT-Large (CPU/MPS friendly).
+    Falls back to BioGPT base if Large doesn't fit in memory.
     """
 
     def __init__(self):
-        self.model_name = "microsoft/BioGPT-Large"
+        self.model_name = settings.llm_model_name if "BioGPT" in settings.llm_model_name else "microsoft/BioGPT-Large"
         self._pipeline = None
 
     def load(self) -> None:
         from transformers import pipeline as hf_pipeline
-        logger.info("Loading BioGPT-Large (CPU fallback)…")
-        self._pipeline = hf_pipeline(
-            "text-generation",
-            model=self.model_name,
-            max_new_tokens=settings.llm_max_new_tokens,
-            do_sample=False,
-        )
-        logger.success("BioGPT-Large loaded.")
+        device = _best_device()
+        device_idx = 0 if device == "cuda" else (-1 if device == "cpu" else device)
+
+        candidates = [self.model_name, "microsoft/BioGPT-Large", "microsoft/BioGPT"]
+        for model_id in candidates:
+            try:
+                logger.info(f"Loading {model_id} on {device}…")
+                self._pipeline = hf_pipeline(
+                    "text-generation",
+                    model=model_id,
+                    device=device_idx,
+                )
+                self.model_name = model_id
+                logger.success(f"{model_id} loaded on {device}.")
+                return
+            except Exception as e:
+                logger.warning(f"Could not load {model_id}: {e}")
+        raise RuntimeError("No BioGPT model could be loaded.")
 
     @property
     def is_loaded(self) -> bool:
@@ -296,7 +315,13 @@ class BioGPTFallback:
     def generate(self, prompt: str, max_new_tokens: int = 256, **kwargs) -> str:
         if not self.is_loaded:
             self.load()
-        out = self._pipeline(prompt, max_new_tokens=max_new_tokens, return_full_text=False)
+        max_tok = min(max_new_tokens, settings.llm_max_new_tokens)
+        out = self._pipeline(
+            prompt,
+            max_new_tokens=max_tok,
+            do_sample=False,
+            return_full_text=False,
+        )
         return out[0]["generated_text"].strip()
 
     def answer_clinical_question(
@@ -321,10 +346,19 @@ def get_llm(prefer: str = "biomistral"):
     """
     Factory that returns the best available LLM.
     Falls back gracefully: BioMistral → Ollama → BioGPT.
+
+    If LLM_MODEL_NAME in settings points to a BioGPT/small model, skip straight
+    to BioGPTFallback so we don't waste time trying to 4-bit-quantize it.
     """
-    if prefer == "biomistral" or prefer == "auto":
+    _biogpt_models = ("biogpt", "microsoft/biogpt")
+    llm_name = settings.llm_model_name.lower()
+
+    # Short-circuit: if the configured model is a BioGPT variant, skip BioMistral
+    skip_biomistral = any(m in llm_name for m in _biogpt_models)
+
+    if (prefer == "biomistral" or prefer == "auto") and not skip_biomistral:
         try:
-            llm = BioMistralLLM()
+            llm = BioMistralLLM(model_name="BioMistral/BioMistral-7B-DARE")
             llm.load()
             return llm
         except Exception as e:
@@ -338,7 +372,7 @@ def get_llm(prefer: str = "biomistral"):
         except Exception as e:
             logger.warning(f"Ollama unavailable: {e}. Falling back to BioGPT…")
 
-    logger.warning("Using BioGPT-Large fallback (reduced quality).")
+    logger.info("Loading BioGPT fallback.")
     llm = BioGPTFallback()
     llm.load()
     return llm

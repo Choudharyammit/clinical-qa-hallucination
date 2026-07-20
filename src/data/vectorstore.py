@@ -177,7 +177,8 @@ def ingest_all_processed(collection: chromadb.Collection, embed_fn) -> int:
     total = 0
     for jsonl_path in sorted(proc_dir.glob("*.jsonl")):
         # Skip MedQA eval files — these are for evaluation, not retrieval corpus
-        if "medqa" in jsonl_path.name:
+        # Note: use startswith so "pubmedqa" chunks are NOT skipped
+        if jsonl_path.name.startswith("medqa"):
             logger.info(f"Skipping eval file from corpus: {jsonl_path.name}")
             continue
         total += ingest_jsonl_file(jsonl_path, collection, embed_fn)

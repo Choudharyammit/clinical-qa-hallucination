@@ -21,6 +21,15 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from src.config import settings
 
 
+def _best_device() -> torch.device:
+    """Return the best available compute device: CUDA > MPS > CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 @dataclass
 class NLIResult:
     premise: str
@@ -70,8 +79,8 @@ class MedNLIModel:
                 self._tokenizer = AutoTokenizer.from_pretrained(model_id)
                 self._model = AutoModelForSequenceClassification.from_pretrained(model_id)
                 self._model.eval()
-                if torch.cuda.is_available():
-                    self._model = self._model.cuda()
+                self._device = _best_device()
+                self._model = self._model.to(self._device)
                 # Detect label ordering from model config
                 self._detect_label_map()
                 logger.success(f"NLI model loaded: {model_id}")
@@ -111,8 +120,8 @@ class MedNLIModel:
             truncation=True,
             max_length=512,
         )
-        if torch.cuda.is_available():
-            inputs = {k: v.cuda() for k, v in inputs.items()}
+        device = getattr(self, "_device", torch.device("cpu"))
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
             logits = self._model(**inputs).logits
