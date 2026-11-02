@@ -1,225 +1,99 @@
-# Hallucination-Resistant Clinical QA System
+# Hallucination-Resistant Clinical Question Answering
 
-**LJMU MSc Machine Learning & AI — Masters Research Project**  
-**Student:** Amit Choudhary | **Student No:** 1187247  
-**Supervisor:** TBC | **Deadline:** 7-day sprint
+Source code for the MSc dissertation *Hallucination-Resistant Clinical Question Answering: A Multi-Agent
+Retrieval-Augmented Pipeline with NLI-Based Verification on Consumer Hardware*
+(MSc Machine Learning and Artificial Intelligence, Liverpool John Moores University).
 
----
+**Author:** Amit Choudhary · Student No. 1187247
 
-## Overview
+## What the system does
 
-A production-grade clinical question-answering system that combines Retrieval-Augmented Generation (RAG) with post-generation hallucination detection to provide evidence-grounded, citation-backed answers to medical questions.
+A six-agent pipeline answers a free-text clinical question and checks every generated claim against
+retrieved evidence before the answer is returned:
 
-**Key Innovation:** Every factual claim in the generated response is verified against retrieved evidence using DeBERTa-v3 NLI, achieving ≥50% reduction in hallucination rate versus the base LLM baseline.
+| Agent | Role |
+|---|---|
+| OrchestratorAgent | ReAct-style loop (at most 5 iterations) over a shared `PipelineState` |
+| RetrieverAgent | BioBERT embeddings (`pritamdeka/BioBERT-mnli-snli-scinli-scitail-mednli-stsb`), ChromaDB cosine search, 30 candidates → MMR (λ = 0.5) → top 10 |
+| RerankAgent | Cross-encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`, keeps the top 5 passages |
+| GeneratorAgent | `microsoft/BioGPT` (347M), greedy decoding, up to 200 new tokens |
+| HallucinationDetectorAgent | Splits the answer into claims and scores each against the 5 passages with `cross-encoder/nli-deberta-v3-base`; claims with entailment below 0.35 are removed |
+| CitationAgent | Links each retained claim to its best-supporting passage |
 
----
+A FastAPI service (`/query`, `/health`, `/metrics`) and a Streamlit demonstration interface wrap the pipeline.
+Everything runs locally on an Apple M1 laptop with 8 GB of unified memory (PyTorch MPS backend).
 
-## System Architecture
+## Four-condition evaluation (n = 50 PubMedQA questions)
 
-```
-User Query
-    │
-    ▼
-OrchestratorAgent (ReAct loop, max 5 iterations)
-    │
-    ├─► RetrieverAgent    ── BioBERT embeddings + ChromaDB + MMR
-    │
-    ├─► RerankAgent       ── cross-encoder/ms-marco-MiniLM-L-6-v2
-    │
-    ├─► GeneratorAgent    ── BioMistral-7B-DARE (4-bit quantized)
-    │
-    ├─► HallucinationDetectorAgent ── DeBERTa-v3 NLI on MedNLI
-    │
-    └─► CitationAgent     ── inline [N] citations + reference list
-            │
-            ▼
-    REST API (FastAPI) ◄──► Streamlit UI
-```
+| Condition | Description | Hallucination rate | Decision accuracy | P95 latency |
+|---|---|---|---|---|
+| A | Base model, no retrieval | 0.52 | 20% | 1.38 s |
+| B | + BioBERT retrieval | 0.94 | 20% | 12.92 s |
+| C | + cross-encoder reranking | 0.98 | 18% | 10.78 s |
+| D (raw) | + NLI filter, as recorded | 0.98 | 18% | 9.95 s |
+| D (corrected) | + NLI filter, fallback bug corrected | 0.10 | 0% | 9.95 s |
 
----
+Hallucination is measured per claim against the gold PubMedQA abstract (entailment threshold 0.35).
+The raw Condition D records were affected by a fallback in the evaluation script that returned the unfiltered
+answer when the filter removed every claim; `scripts/analyze_eval_results.py` applies the documented correction.
+Corrected D versus A: Welch's t = 5.045, p < 0.001, Cohen's d = 1.01 (80.77% relative reduction).
 
-## Quick Start
-
-### Prerequisites
-- Python 3.11+
-- 8GB+ RAM (16GB recommended for BioMistral-7B)
-- GPU optional (falls back to CPU with quantization)
-
-### Setup
-
-```bash
-# 1. Clone and install
-git clone <repo>
-cd clinical-qa-system
-pip install -r requirements.txt
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env if needed (defaults work without API keys)
-
-# 3. Download datasets
-make download-data
-
-# 4. Preprocess and ingest into vector store
-make ingest-data
-
-# 5. Start the API
-make run-api
-
-# 6. Start the UI (new terminal)
-make run-ui
-```
-
-### Docker (recommended)
-
-```bash
-docker-compose up -d
-# API:    http://localhost:8000
-# UI:     http://localhost:8501
-# MLflow: http://localhost:5000
-```
-
----
-
-## API Reference
-
-### POST /query
-```json
-{
-  "question": "What is the first-line treatment for type 2 diabetes?",
-  "use_rag": true,
-  "use_hallucination_filter": true,
-  "mcq_options": {"A": "Metformin", "B": "Insulin", "C": "Surgery", "D": "Aspirin"}
-}
-```
-
-**Response:**
-```json
-{
-  "answer": "Metformin is the first-line treatment... [1]",
-  "mcq_prediction": "A",
-  "confidence": "High",
-  "hallucination_rate": 0.05,
-  "response_time_s": 1.87,
-  "citations": [{"source": "PubMed:12345", "pmid": "12345", ...}],
-  "hallucination_report": {"total_claims": 4, "hallucinated_claims": 0, ...}
-}
-```
-
-### GET /health
-Returns system health status, vector store count, model status.
-
-### GET /metrics
-Returns latest benchmark evaluation metrics.
-
----
-
-## Datasets
-
-| Dataset | Source | Size | Use |
-|---------|--------|------|-----|
-| MedQA (USMLE 4-opt) | HuggingFace: GBaker/MedQA-USMLE-4-options | 11,723 QA pairs | Accuracy evaluation |
-| PubMedQA | HuggingFace: qiaojin/PubMedQA | 211K QA pairs | RAG corpus + RAGAS eval |
-| PubMed Abstracts | NCBI E-utilities (no auth) | Up to 50K abstracts | Retrieval corpus |
-
-All datasets are freely available without institutional access.
-
----
-
-## Evaluation
-
-Run the full 3-condition comparison study:
-
-```bash
-# All conditions: base LLM / RAG only / RAG + hallucination filter
-make evaluate
-
-# Hallucination rate analysis + charts
-make evaluate-hallucination
-
-# RAGAS faithfulness + answer relevance
-make evaluate-ragas
-```
-
-**Target Metrics:**
-- MedQA Accuracy: ≥75%
-- Hallucination Rate Reduction vs Base LLM: ≥50%
-- API P95 Response Time: <3s
-
----
-
-## Running Tests
-
-```bash
-# Full test suite with coverage
-make test-cov
-
-# Fast tests only (exclude slow model-loading tests)
-make test-fast
-```
-
----
-
-## Project Structure
+## Repository layout
 
 ```
-clinical-qa-system/
-├── src/
-│   ├── agents/         # 7 specialist agents
-│   ├── data/           # data download, preprocessing, vectorstore
-│   ├── models/         # LLM, embeddings, NLI wrappers
-│   ├── evaluation/     # MedQA, hallucination, RAGAS evaluators
-│   ├── api/            # FastAPI application
-│   └── ui/             # Streamlit chat interface
-├── tests/              # pytest test suite (>80% coverage target)
-├── notebooks/          # Jupyter exploration + results analysis
-├── docs/               # Auto-generated API docs + architecture
-├── report/             # LaTeX/Markdown academic report
-├── data/               # Raw + processed datasets (git-ignored)
-└── mlruns/             # MLflow experiment tracking
+src/agents/       orchestrator, retriever, reranker, generator, hallucination detector, citation, evaluator
+src/models/       LLM wrappers (BioGPT, BioMistral, Ollama), NLI model, embeddings, model manager, NLI trainer
+src/data/         downloader, preprocessor (cleaning, deduplication, chunking), ChromaDB vector store
+src/evaluation/   retrieval, baseline, hallucination and RAGAS-style evaluation utilities
+src/api/          FastAPI application and schemas
+src/ui/           Streamlit demonstration interface
+scripts/          run_four_condition_eval.py, analyze_eval_results.py, benchmark and load-test scripts
+results/          four_condition_eval.json (per-question records), supplementary_analysis.json
+tests/            pytest suite (215 test functions in 11 modules)
 ```
 
----
+## Datasets (public)
 
-## Tech Stack
+The datasets are not stored in this repository; the scripts download and rebuild them.
 
-| Component | Technology |
-|-----------|-----------|
-| Backend | Python 3.11, FastAPI, uvicorn |
-| LLM | BioMistral-7B-DARE (4-bit GPTQ) |
-| Embeddings | BioBERT (sentence-transformers) |
-| Vector DB | ChromaDB + FAISS fallback |
-| NLI | DeBERTa-v3-base (MedNLI) |
-| Reranker | cross-encoder/ms-marco-MiniLM-L-6-v2 |
-| RAG | LangChain + LlamaIndex |
-| Evaluation | RAGAS, MLflow |
-| Frontend | Streamlit |
-| Testing | pytest + >80% coverage |
-| Deploy | Docker + docker-compose |
+- **PubMedQA** (Jin et al., 2019): https://huggingface.co/datasets/qiaojin/PubMedQA
+  The expert-labelled subset (PQA-L) supplies the evaluation questions and gold abstracts; the artificially
+  generated subset (PQA-A) supplies most of the retrieval corpus.
+- **PubMed abstracts** via NCBI E-utilities: https://www.ncbi.nlm.nih.gov/books/NBK25501/
 
----
+The persisted ChromaDB index used in the dissertation contains 668,909 chunks (about 5.5 GB including raw data).
 
-## Reproducibility
-
-Random seeds are fixed at 42 (Python, NumPy, PyTorch).  
-All dependencies are pinned in `requirements.txt`.  
-To reproduce results exactly:
+## Reproducing the results
 
 ```bash
 pip install -r requirements.txt
-make download-data && make ingest-data
-python -m src.evaluation.medqa_eval --condition all --max-samples 500
+cp .env.example .env                      # set PUBMED_EMAIL for NCBI requests
+
+python -m src.data.downloader --dataset all
+python -m src.data.preprocessor           # clean, deduplicate and chunk (512 words, 64-word overlap)
+python -m src.data.vectorstore --action ingest
+
+python scripts/run_four_condition_eval.py --n 50 --seed 42 --output results/four_condition_eval.json
+python scripts/analyze_eval_results.py --results results/four_condition_eval.json
 ```
 
----
+The evaluation in the dissertation was run with Python 3.13 on macOS (Apple M1, 8 GB). The pins in
+`requirements.txt` predate that environment and may need updating for Python 3.13.
 
-## Academic Report
+## Running the demo
 
-The full 15,000–20,000 word LJMU-standard research report is in `report/masters_report.md`.
+```bash
+make run-api      # FastAPI on http://localhost:8000
+make run-ui       # Streamlit on http://localhost:8501
+```
 
----
+## Tests
 
-## License
+```bash
+make test
+```
 
-MIT — for academic purposes only.  
-Dataset licenses: MedQA (MIT), PubMedQA (MIT), PubMed abstracts (NLM terms of service).
+## Disclaimer
+
+This is a research prototype. It has not been validated with clinicians and must not be used for clinical
+decision-making.
